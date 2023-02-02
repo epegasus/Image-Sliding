@@ -9,6 +9,7 @@ import android.graphics.drawable.BitmapDrawable
 import android.util.AttributeSet
 import android.util.TypedValue
 import android.view.View
+import android.view.ViewTreeObserver.OnGlobalLayoutListener
 import androidx.core.content.ContextCompat
 import java.util.Random
 import kotlin.math.abs
@@ -20,7 +21,6 @@ import kotlin.math.abs
  *      -> https://github.com/epegasus
  *      -> https://stackoverflow.com/users/20440272/sohaib-ahmed
  */
-
 
 class ImageSlider(context: Context, attrs: AttributeSet?) : View(context, attrs) {
 
@@ -68,77 +68,90 @@ class ImageSlider(context: Context, attrs: AttributeSet?) : View(context, attrs)
 
     init {
         val typedArr = context.obtainStyledAttributes(attrs, R.styleable.ImageSlider, 0, 0)
-        val initialState: Int
-        try {
-            speed = typedArr.getDimension(R.styleable.ImageSlider_speed, 60f).toDouble()
-            initialState = typedArr.getInt(R.styleable.ImageSlider_initialState, 0)
-            val sceneLength = typedArr.getInt(R.styleable.ImageSlider_sceneLength, 1000)
-            val randomnessResourceId = typedArr.getResourceId(R.styleable.ImageSlider_randomness, 0)
-            // When true, randomness is ignored and bitmaps are loaded in the order as they appear in the src array */
-            val contiguous = typedArr.getBoolean(R.styleable.ImageSlider_contiguous, false)
+        viewTreeObserver.addOnGlobalLayoutListener(object : OnGlobalLayoutListener {
+            override fun onGlobalLayout() {
+                viewTreeObserver.removeOnGlobalLayoutListener(this)
 
-            var randomness = IntArray(0)
-            if (randomnessResourceId > 0) {
-                randomness = resources.getIntArray(randomnessResourceId)
-            }
-            val type = if (isInEditMode) TypedValue.TYPE_STRING else typedArr.peekValue(R.styleable.ImageSlider_imageId).type
-
-            if (type == TypedValue.TYPE_REFERENCE) {
-                val resourceId = typedArr.getResourceId(R.styleable.ImageSlider_imageId, 0)
-                val typedArray = resources.obtainTypedArray(resourceId)
+                val initialState: Int
                 try {
-                    var bitmapsSize = 0
-                    for (r in randomness) {
-                        bitmapsSize += r
+                    speed = typedArr.getDimension(R.styleable.ImageSlider_speed, 60f).toDouble()
+                    initialState = typedArr.getInt(R.styleable.ImageSlider_initialState, 0)
+                    val sceneLength = typedArr.getInt(R.styleable.ImageSlider_sceneLength, 1000)
+                    val randomnessResourceId = typedArr.getResourceId(R.styleable.ImageSlider_randomness, 0)
+                    // When true, randomness is ignored and bitmaps are loaded in the order as they appear in the src array */
+                    val contiguous = typedArr.getBoolean(R.styleable.ImageSlider_contiguous, false)
+
+                    var randomness = IntArray(0)
+                    if (randomnessResourceId > 0) {
+                        randomness = resources.getIntArray(randomnessResourceId)
                     }
-                    bitmaps = ArrayList()
-                    for (i in 0 until typedArray.length()) {
-                        var multiplier = 1
-                        if (randomness.isNotEmpty() && (i < randomness.size)) {
-                            multiplier = 1.coerceAtLeast(randomness[i])
-                        }
-                        val bitmap: Bitmap? = bitmapLoader.loadDrawable(getContext(), typedArray.getResourceId(i, 0))
-                        bitmap?.let { bmp ->
-                            for (a in 0 until multiplier) {
-                                (bitmaps as ArrayList<Bitmap>).add(bmp)
+                    val type = if (isInEditMode) TypedValue.TYPE_STRING else typedArr.peekValue(R.styleable.ImageSlider_imageId).type
+
+                    if (type == TypedValue.TYPE_REFERENCE) {
+                        val resourceId = typedArr.getResourceId(R.styleable.ImageSlider_imageId, 0)
+                        val typedArray = resources.obtainTypedArray(resourceId)
+                        try {
+                            var bitmapsSize = 0
+                            for (r in randomness) {
+                                bitmapsSize += r
                             }
-                            maxBitmapHeight = bmp.height.coerceAtLeast(maxBitmapHeight)
+                            bitmaps = ArrayList()
+                            for (i in 0 until typedArray.length()) {
+                                var multiplier = 1
+                                if (randomness.isNotEmpty() && (i < randomness.size)) {
+                                    multiplier = 1.coerceAtLeast(randomness[i])
+                                }
+                                val bitmap: Bitmap? = bitmapLoader.loadDrawable(getContext(), typedArray.getResourceId(i, 0))
+                                bitmap?.let { bmp ->
+                                    for (a in 0 until multiplier) {
+                                        val scaledBitmap = scaleBitmap(bmp, height)
+                                        (bitmaps as ArrayList<Bitmap>).add(scaledBitmap)
+                                    }
+                                    maxBitmapHeight = measuredHeight
+                                }
+                            }
+                            val random = Random()
+                            scene = IntArray(sceneLength)
+                            for (i in scene.indices) {
+                                if (contiguous) {
+                                    scene[i] = i % bitmaps.size
+                                } else {
+                                    scene[i] = random.nextInt(bitmaps.size)
+                                }
+                            }
+                        } finally {
+                            typedArray.recycle()
                         }
-                    }
-                    val random = Random()
-                    scene = IntArray(sceneLength)
-                    for (i in scene.indices) {
-                        if (contiguous) {
-                            scene[i] = i % bitmaps.size
-                        } else {
-                            scene[i] = random.nextInt(bitmaps.size)
+                    } else if (type == TypedValue.TYPE_STRING) {
+                        val bitmap: Bitmap? = bitmapLoader.loadDrawable(getContext(), typedArr.getResourceId(R.styleable.ImageSlider_imageId, 0))
+                        bitmap?.let {
+                            val scaledBitmap = scaleBitmap(it, height)
+                            bitmaps = listOf(scaledBitmap)
+                            scene = intArrayOf(0)
+                            maxBitmapHeight = measuredHeight
+                        } ?: kotlin.run {
+                            bitmaps = emptyList()
                         }
                     }
                 } finally {
-                    typedArray.recycle()
+                    typedArr.recycle()
                 }
-            } else if (type == TypedValue.TYPE_STRING) {
-                val bitmap: Bitmap? = bitmapLoader.loadDrawable(getContext(), typedArr.getResourceId(R.styleable.ImageSlider_imageId, 0))
-                bitmap?.let {
-                    bitmaps = listOf(bitmap)
-                    scene = intArrayOf(0)
-                    maxBitmapHeight = bitmaps[0].height
-                } ?: kotlin.run {
-                    bitmaps = emptyList()
+                if (initialState == 0) {
+                    start()
                 }
             }
-        } finally {
-            typedArr.recycle()
-        }
-        if (initialState == 0) {
-            start()
-        }
+        })
     }
 
+    fun scaleBitmap(bitmap: Bitmap, newHeight: Int): Bitmap {
+        val aspectRatio = bitmap.width.toFloat() / bitmap.height.toFloat()
+        val newWidth = (newHeight * aspectRatio).toInt()
+        return Bitmap.createScaledBitmap(bitmap, newWidth, newHeight, false)
+    }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         super.onMeasure(widthMeasureSpec, heightMeasureSpec)
-        setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), maxBitmapHeight)
+        setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), heightMeasureSpec)
     }
 
     override fun onDraw(canvas: Canvas?) {
